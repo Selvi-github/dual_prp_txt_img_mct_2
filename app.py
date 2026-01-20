@@ -184,7 +184,7 @@ def main():
                 
                 # Retrieve images based on text
                 with st.spinner("Retrieving images based on TEXT..."):
-                    retriever = ImageRetriever()
+                    retriever = ImageRetrieverFixed()
                     text_based_images = retriever.retrieve_images(
                         text_info['search_query'], 
                         max_images
