@@ -11,7 +11,7 @@ import os
 
 # Import custom modules
 from text_processor import TextProcessor
-from image_retriever import ImageRetriever
+from image_retriever import ImageRetrieverFixed
 from dual_verifier import DualVerifier
 from explanation_generator import ExplanationGenerator
 
