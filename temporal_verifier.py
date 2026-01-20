@@ -1,48 +1,48 @@
 """
-Temporal Verification Module
-Novel Enhancement: Detects date/time mismatches between text and images
-Addresses DEETSA limitation: No temporal consistency checking
-
-This module extracts:
-1. EXIF metadata from images (actual photo date)
-2. Date entities from text (claimed date)
-3. Temporal inconsistencies (old photos used for recent claims)
+FIXED Temporal Verification Module
+Critical Fixes:
+1. Better text date extraction (extracts ALL dates from text)
+2. Cross-verification with web search for actual event dates
+3. Detects when user gives WRONG year (e.g., says 2023 but actual is 2024)
+4. Shows correct date found from news sources
 """
 
 from PIL import Image
 from PIL.ExifTags import TAGS
 import re
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Tuple
-import io
+from typing import Dict, Optional, List, Tuple
+import requests
+from bs4 import BeautifulSoup
 
-class TemporalVerifier:
+class TemporalVerifierFixed:
     """
-    Temporal Mismatch Detection Module
+    FIXED Temporal Verifier
     
-    Base Paper Limitation:
-    - DEETSA focuses on semantic content but ignores temporal metadata
-    - Cannot detect when old images are reused for recent claims
-    
-    Our Enhancement:
-    - EXIF metadata extraction from images
-    - Date entity extraction from text
-    - Temporal consistency verification
-    - Detects "image recycling" attacks
+    New Capabilities:
+    1. Extracts ALL dates from text (not just first one)
+    2. Web search to find ACTUAL event date
+    3. Compares claimed date vs actual date
+    4. Shows correction: "You said 2023 but actually happened in 2024"
     """
     
     def __init__(self):
         """Initialize temporal verifier"""
-        print("✓ Temporal Verifier initialized")
+        print("✓ FIXED Temporal Verifier initialized")
         
-        # Temporal keywords for extraction
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        # Temporal keywords
         self.temporal_keywords = {
             'today', 'yesterday', 'tomorrow', 'now', 'currently',
             'recent', 'latest', 'breaking', 'just happened', 'ongoing',
-            'this morning', 'this evening', 'tonight', 'last night'
+            'this morning', 'this evening', 'tonight', 'last night',
+            'last week', 'last month', 'this year', 'last year'
         }
         
-        # Month names for extraction
+        # Month names
         self.months = {
             'january': 1, 'february': 2, 'march': 3, 'april': 4,
             'may': 5, 'june': 6, 'july': 7, 'august': 8,
@@ -54,108 +54,252 @@ class TemporalVerifier:
     def verify_temporal_consistency(
         self, 
         text: str, 
-        image: Image.Image
+        image: Image.Image,
+        keywords: List[str] = None
     ) -> Dict:
         """
-        Main temporal verification function
+        FIXED: Now checks claimed date vs ACTUAL date from web
         
-        Returns:
-        {
-            'has_mismatch': bool,
-            'confidence': float (0-100),
-            'text_date': str or None,
-            'image_date': str or None,
-            'days_difference': int or None,
-            'explanation': str,
-            'severity': str ('LOW', 'MEDIUM', 'HIGH')
-        }
+        Process:
+        1. Extract ALL dates from text (user's claim)
+        2. Search web for ACTUAL event date
+        3. Extract EXIF from image
+        4. Cross-verify all three
+        5. Show corrections if needed
         """
         try:
-            # Extract dates
-            text_date = self.extract_text_date(text)
+            print("\n🔍 FIXED Temporal Verification Starting...")
+            
+            # Step 1: Extract claimed dates from text
+            claimed_dates = self.extract_all_text_dates(text)
+            print(f"  📝 Claimed dates from text: {claimed_dates}")
+            
+            # Step 2: Search web for ACTUAL event date
+            actual_date = self.search_actual_event_date(text, keywords)
+            print(f"  🌐 Actual date from web: {actual_date}")
+            
+            # Step 3: Extract image EXIF date
             image_date = self.extract_image_date(image)
+            print(f"  📸 Image EXIF date: {image_date}")
             
-            # If no dates found, return neutral result
-            if not text_date and not image_date:
-                return {
-                    'has_mismatch': False,
-                    'confidence': 0,
-                    'text_date': None,
-                    'image_date': None,
-                    'days_difference': None,
-                    'explanation': 'No temporal information available for verification',
-                    'severity': 'LOW'
-                }
-            
-            # If only one date found
-            if not text_date or not image_date:
-                return {
-                    'has_mismatch': False,
-                    'confidence': 20,
-                    'text_date': str(text_date) if text_date else None,
-                    'image_date': str(image_date) if image_date else None,
-                    'days_difference': None,
-                    'explanation': 'Incomplete temporal information - cannot fully verify',
-                    'severity': 'LOW'
-                }
-            
-            # Compare dates
-            days_diff = abs((text_date - image_date).days)
-            
-            # Determine mismatch severity
-            result = self._evaluate_temporal_difference(
-                text_date, 
-                image_date, 
-                days_diff,
-                text
+            # Step 4: Cross-verify everything
+            result = self._cross_verify_dates(
+                text,
+                claimed_dates,
+                actual_date,
+                image_date
             )
             
+            print(f"  ✓ Verification complete: {result['verdict']}")
             return result
         
         except Exception as e:
             print(f"Temporal verification error: {e}")
-            return {
-                'has_mismatch': False,
-                'confidence': 0,
-                'text_date': None,
-                'image_date': None,
-                'days_difference': None,
-                'explanation': f'Temporal verification failed: {str(e)}',
-                'severity': 'LOW'
-            }
+            return self._get_neutral_result()
     
-    def extract_image_date(self, image: Image.Image) -> Optional[datetime]:
+    def extract_all_text_dates(self, text: str) -> List[Dict]:
         """
-        Extract date from image EXIF metadata
+        FIXED: Extract ALL dates from text, not just first one
         
-        Novel Approach: Uses EXIF DateTimeOriginal tag
-        This is when the photo was actually taken
+        Returns list of dates with context
+        """
+        dates_found = []
+        text_lower = text.lower()
+        current_date = datetime.now()
+        
+        # Pattern 1: Explicit dates (DD/MM/YYYY, DD-MM-YYYY)
+        pattern1 = r'\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b'
+        matches1 = re.finditer(pattern1, text)
+        for match in matches1:
+            day, month, year = match.groups()
+            try:
+                date = datetime(int(year), int(month), int(day))
+                dates_found.append({
+                    'date': date,
+                    'format': 'DD/MM/YYYY',
+                    'text': match.group(0),
+                    'confidence': 0.95
+                })
+            except:
+                pass
+        
+        # Pattern 2: Month DD, YYYY (e.g., "December 25, 2024")
+        for month_name, month_num in self.months.items():
+            pattern = rf'\b{month_name}\s+(\d{{1,2}}),?\s+(\d{{4}})\b'
+            matches = re.finditer(pattern, text_lower)
+            for match in matches:
+                day, year = match.groups()
+                try:
+                    date = datetime(int(year), month_num, int(day))
+                    dates_found.append({
+                        'date': date,
+                        'format': 'Month DD, YYYY',
+                        'text': match.group(0),
+                        'confidence': 0.95
+                    })
+                except:
+                    pass
+        
+        # Pattern 3: Just Month YYYY
+        for month_name, month_num in self.months.items():
+            pattern = rf'\b{month_name}\s+(\d{{4}})\b'
+            matches = re.finditer(pattern, text_lower)
+            for match in matches:
+                year = match.groups()[0]
+                try:
+                    # Middle of month
+                    date = datetime(int(year), month_num, 15)
+                    dates_found.append({
+                        'date': date,
+                        'format': 'Month YYYY',
+                        'text': match.group(0),
+                        'confidence': 0.80
+                    })
+                except:
+                    pass
+        
+        # Pattern 4: Just year (YYYY)
+        year_pattern = r'\b(20\d{2})\b'
+        years = re.finditer(year_pattern, text)
+        for match in years:
+            year = int(match.group(1))
+            # Middle of year
+            date = datetime(year, 6, 15)
+            dates_found.append({
+                'date': date,
+                'format': 'YYYY',
+                'text': match.group(0),
+                'confidence': 0.60
+            })
+        
+        # Pattern 5: Relative dates
+        if any(keyword in text_lower for keyword in ['today', 'now', 'currently']):
+            dates_found.append({
+                'date': current_date,
+                'format': 'relative',
+                'text': 'today/now',
+                'confidence': 0.90
+            })
+        
+        if 'yesterday' in text_lower:
+            dates_found.append({
+                'date': current_date - timedelta(days=1),
+                'format': 'relative',
+                'text': 'yesterday',
+                'confidence': 0.90
+            })
+        
+        # Remove duplicates and sort by confidence
+        unique_dates = []
+        seen = set()
+        for d in sorted(dates_found, key=lambda x: x['confidence'], reverse=True):
+            date_key = d['date'].strftime('%Y-%m-%d')
+            if date_key not in seen:
+                seen.add(date_key)
+                unique_dates.append(d)
+        
+        return unique_dates
+    
+    def search_actual_event_date(self, text: str, keywords: List[str] = None) -> Optional[Dict]:
+        """
+        NEW FUNCTION: Search web to find ACTUAL event date
+        
+        This is KEY FIX - searches news to find when event actually happened
         """
         try:
-            # Get EXIF data
+            print("  🔍 Searching web for actual event date...")
+            
+            # Build search query
+            if keywords:
+                search_query = ' '.join(keywords[:5]) + ' date'
+            else:
+                # Use first 50 chars of text
+                search_query = text[:50] + ' date'
+            
+            # Search Google News
+            url = f"https://www.google.com/search?q={requests.utils.quote(search_query)}&tbm=nws"
+            
+            response = requests.get(url, headers=self.headers, timeout=10)
+            
+            if response.status_code != 200:
+                return None
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Find date in news results
+            dates_in_news = []
+            
+            # Look for date patterns in news snippets
+            snippets = soup.find_all(['div', 'span'], limit=10)
+            
+            for snippet in snippets:
+                text_content = snippet.get_text()
+                
+                # Extract dates from snippet
+                # Pattern: Month DD, YYYY
+                for month_name, month_num in self.months.items():
+                    pattern = rf'{month_name}\s+(\d{{1,2}}),?\s+(\d{{4}})'
+                    matches = re.finditer(pattern, text_content.lower())
+                    for match in matches:
+                        day, year = match.groups()
+                        try:
+                            date = datetime(int(year), month_num, int(day))
+                            dates_in_news.append({
+                                'date': date,
+                                'source': 'news',
+                                'text': match.group(0),
+                                'confidence': 0.85
+                            })
+                        except:
+                            pass
+                
+                # Pattern: YYYY
+                year_pattern = r'\b(20\d{2})\b'
+                years = re.finditer(year_pattern, text_content)
+                for match in years:
+                    year = int(match.group(1))
+                    date = datetime(year, 6, 15)
+                    dates_in_news.append({
+                        'date': date,
+                        'source': 'news',
+                        'text': match.group(0),
+                        'confidence': 0.70
+                    })
+            
+            # Return most recent date found (likely the actual event date)
+            if dates_in_news:
+                # Sort by date (most recent first)
+                dates_in_news.sort(key=lambda x: x['date'], reverse=True)
+                print(f"  ✓ Found actual date from news: {dates_in_news[0]['date'].strftime('%Y-%m-%d')}")
+                return dates_in_news[0]
+            
+            return None
+        
+        except Exception as e:
+            print(f"  ⚠️ Web search for actual date failed: {e}")
+            return None
+    
+    def extract_image_date(self, image: Image.Image) -> Optional[datetime]:
+        """Extract date from image EXIF (unchanged)"""
+        try:
             exif_data = image._getexif()
             
             if not exif_data:
                 return None
             
-            # Look for date/time tags
             date_tags = ['DateTimeOriginal', 'DateTime', 'DateTimeDigitized']
             
             for tag_id, value in exif_data.items():
                 tag_name = TAGS.get(tag_id, tag_id)
                 
                 if tag_name in date_tags:
-                    # Parse date string (format: "YYYY:MM:DD HH:MM:SS")
                     date_str = str(value)
                     
-                    # Try to parse
                     try:
-                        # Replace ':' with '-' for first two occurrences (date part)
                         date_str = date_str.replace(':', '-', 2)
                         parsed_date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
                         return parsed_date
                     except:
-                        # Try alternative format
                         try:
                             parsed_date = datetime.strptime(date_str, '%Y:%m:%d %H:%M:%S')
                             return parsed_date
@@ -165,164 +309,129 @@ class TemporalVerifier:
             return None
         
         except Exception as e:
-            print(f"EXIF extraction error: {e}")
             return None
     
-    def extract_text_date(self, text: str) -> Optional[datetime]:
-        """
-        Extract date from text description
-        
-        Approach:
-        1. Look for explicit dates (DD/MM/YYYY, Month DD YYYY)
-        2. Look for relative dates (today, yesterday)
-        3. Extract year if mentioned
-        """
-        try:
-            text_lower = text.lower()
-            current_date = datetime.now()
-            
-            # Check for relative dates
-            if any(keyword in text_lower for keyword in ['today', 'this morning', 'tonight', 'now']):
-                return current_date
-            
-            if 'yesterday' in text_lower or 'last night' in text_lower:
-                return current_date - timedelta(days=1)
-            
-            if 'tomorrow' in text_lower:
-                return current_date + timedelta(days=1)
-            
-            # Look for explicit dates
-            # Pattern 1: DD/MM/YYYY or DD-MM-YYYY
-            date_pattern1 = r'\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b'
-            matches = re.findall(date_pattern1, text)
-            if matches:
-                day, month, year = matches[0]
-                try:
-                    return datetime(int(year), int(month), int(day))
-                except:
-                    pass
-            
-            # Pattern 2: Month DD, YYYY (e.g., "December 25, 2024")
-            for month_name, month_num in self.months.items():
-                pattern = rf'\b{month_name}\s+(\d{{1,2}}),?\s+(\d{{4}})\b'
-                matches = re.findall(pattern, text_lower)
-                if matches:
-                    day, year = matches[0]
-                    try:
-                        return datetime(int(year), month_num, int(day))
-                    except:
-                        continue
-            
-            # Pattern 3: Just year mentioned (e.g., "in 2023")
-            year_pattern = r'\b(20\d{2})\b'
-            years = re.findall(year_pattern, text)
-            if years:
-                # Use middle of that year
-                year = int(years[0])
-                return datetime(year, 6, 15)
-            
-            return None
-        
-        except Exception as e:
-            print(f"Text date extraction error: {e}")
-            return None
-    
-    def _evaluate_temporal_difference(
+    def _cross_verify_dates(
         self,
-        text_date: datetime,
-        image_date: datetime,
-        days_diff: int,
-        text: str
+        text: str,
+        claimed_dates: List[Dict],
+        actual_date: Optional[Dict],
+        image_date: Optional[datetime]
     ) -> Dict:
         """
-        Evaluate temporal difference and determine severity
+        CRITICAL FIX: Cross-verify all dates and show corrections
         
-        Thresholds:
-        - 0-7 days: Acceptable (same week)
-        - 8-30 days: Minor concern (same month)
-        - 31-365 days: Medium concern (same year)
-        - 365+ days: HIGH CONCERN (different years - likely image reuse)
+        Checks:
+        1. Claimed date vs Actual date (from web)
+        2. Claimed date vs Image date
+        3. Actual date vs Image date
         """
         
-        text_lower = text.lower()
-        
-        # Check if text claims "recent" or "breaking"
-        claims_recent = any(
-            keyword in text_lower 
-            for keyword in ['today', 'yesterday', 'recent', 'breaking', 'just', 'now']
-        )
-        
-        # Severity thresholds
-        if days_diff <= 7:
-            # Within a week - acceptable
+        # If no dates at all
+        if not claimed_dates and not actual_date and not image_date:
             return {
                 'has_mismatch': False,
-                'confidence': 90,
-                'text_date': str(text_date.date()),
-                'image_date': str(image_date.date()),
-                'days_difference': days_diff,
-                'explanation': f'Dates are consistent (within {days_diff} days)',
-                'severity': 'LOW'
+                'verdict': 'NO_TEMPORAL_INFO',
+                'claimed_date': None,
+                'actual_date': None,
+                'image_date': None,
+                'correction': None,
+                'explanation': 'No temporal information available',
+                'confidence': 0
             }
         
-        elif days_diff <= 30:
-            # Within a month
-            if claims_recent:
+        # PRIMARY CHECK: Claimed vs Actual
+        if claimed_dates and actual_date:
+            claimed = claimed_dates[0]['date']  # Highest confidence claimed date
+            actual = actual_date['date']
+            
+            days_diff = abs((claimed - actual).days)
+            years_diff = days_diff / 365
+            
+            # CRITICAL: Different years!
+            if years_diff >= 1:
                 return {
                     'has_mismatch': True,
-                    'confidence': 60,
-                    'text_date': str(text_date.date()),
-                    'image_date': str(image_date.date()),
-                    'days_difference': days_diff,
-                    'explanation': f'Text claims recent incident, but image is {days_diff} days old',
-                    'severity': 'MEDIUM'
+                    'verdict': 'WRONG_YEAR_CLAIMED',
+                    'severity': 'CRITICAL',
+                    'claimed_date': claimed.strftime('%Y-%m-%d'),
+                    'actual_date': actual.strftime('%Y-%m-%d'),
+                    'image_date': image_date.strftime('%Y-%m-%d') if image_date else None,
+                    'correction': f"❌ You said {claimed.year} but event actually happened in {actual.year}",
+                    'explanation': (
+                        f"User claimed date: {claimed.strftime('%B %d, %Y')}\n"
+                        f"Actual date from news: {actual.strftime('%B %d, %Y')}\n"
+                        f"Difference: {int(years_diff)} years!\n\n"
+                        f"🚨 CRITICAL: Year mismatch detected. The event happened in {actual.year}, not {claimed.year}."
+                    ),
+                    'confidence': 95
                 }
-            else:
+            
+            # Different months
+            elif days_diff > 60:
                 return {
-                    'has_mismatch': False,
-                    'confidence': 70,
-                    'text_date': str(text_date.date()),
-                    'image_date': str(image_date.date()),
-                    'days_difference': days_diff,
-                    'explanation': f'Dates are reasonably close ({days_diff} days difference)',
-                    'severity': 'LOW'
+                    'has_mismatch': True,
+                    'verdict': 'WRONG_MONTH_CLAIMED',
+                    'severity': 'HIGH',
+                    'claimed_date': claimed.strftime('%Y-%m-%d'),
+                    'actual_date': actual.strftime('%Y-%m-%d'),
+                    'image_date': image_date.strftime('%Y-%m-%d') if image_date else None,
+                    'correction': f"⚠️ Event was in {actual.strftime('%B %Y')}, not {claimed.strftime('%B %Y')}",
+                    'explanation': (
+                        f"User claimed: {claimed.strftime('%B %Y')}\n"
+                        f"Actual date: {actual.strftime('%B %Y')}\n"
+                        f"Difference: {days_diff} days\n\n"
+                        f"⚠️ Month mismatch detected."
+                    ),
+                    'confidence': 85
                 }
         
-        elif days_diff <= 365:
-            # Within a year but different months
-            return {
-                'has_mismatch': True,
-                'confidence': 75,
-                'text_date': str(text_date.date()),
-                'image_date': str(image_date.date()),
-                'days_difference': days_diff,
-                'explanation': f'⚠️ Temporal mismatch detected: {days_diff} days difference between claimed date and image date',
-                'severity': 'MEDIUM'
-            }
+        # SECONDARY CHECK: Image EXIF vs Claimed/Actual
+        if image_date:
+            # Check against claimed
+            if claimed_dates:
+                claimed = claimed_dates[0]['date']
+                days_diff = abs((claimed - image_date).days)
+                
+                if days_diff > 365:
+                    return {
+                        'has_mismatch': True,
+                        'verdict': 'OLD_IMAGE_REUSED',
+                        'severity': 'CRITICAL',
+                        'claimed_date': claimed.strftime('%Y-%m-%d'),
+                        'actual_date': actual_date['date'].strftime('%Y-%m-%d') if actual_date else None,
+                        'image_date': image_date.strftime('%Y-%m-%d'),
+                        'correction': f"🚨 Image is from {image_date.year}, but claimed incident is from {claimed.year}",
+                        'explanation': (
+                            f"Image EXIF date: {image_date.strftime('%B %d, %Y')}\n"
+                            f"Claimed incident date: {claimed.strftime('%B %d, %Y')}\n"
+                            f"Difference: {days_diff} days ({days_diff//365} years)\n\n"
+                            f"🚨 CRITICAL: Old image being reused for recent claim!"
+                        ),
+                        'confidence': 95
+                    }
         
-        else:
-            # More than a year - HIGH CONCERN
-            years_diff = days_diff // 365
-            return {
-                'has_mismatch': True,
-                'confidence': 95,
-                'text_date': str(text_date.date()),
-                'image_date': str(image_date.date()),
-                'days_difference': days_diff,
-                'explanation': f'🚨 SEVERE temporal mismatch: Image is {years_diff}+ years old but text claims recent incident. Likely image reuse!',
-                'severity': 'HIGH'
-            }
+        # No significant mismatch
+        return {
+            'has_mismatch': False,
+            'verdict': 'DATES_CONSISTENT',
+            'claimed_date': claimed_dates[0]['date'].strftime('%Y-%m-%d') if claimed_dates else None,
+            'actual_date': actual_date['date'].strftime('%Y-%m-%d') if actual_date else None,
+            'image_date': image_date.strftime('%Y-%m-%d') if image_date else None,
+            'correction': None,
+            'explanation': 'Dates are reasonably consistent',
+            'confidence': 70
+        }
     
-    def get_temporal_summary(self, result: Dict) -> str:
-        """Generate human-readable summary"""
-        if not result['has_mismatch']:
-            return "✅ No temporal inconsistencies detected"
-        
-        severity = result['severity']
-        
-        if severity == 'HIGH':
-            return f"🚨 CRITICAL: {result['explanation']}"
-        elif severity == 'MEDIUM':
-            return f"⚠️ WARNING: {result['explanation']}"
-        else:
-            return f"ℹ️ NOTICE: {result['explanation']}"
+    def _get_neutral_result(self) -> Dict:
+        """Return neutral result for errors"""
+        return {
+            'has_mismatch': False,
+            'verdict': 'ERROR',
+            'claimed_date': None,
+            'actual_date': None,
+            'image_date': None,
+            'correction': None,
+            'explanation': 'Could not verify temporal consistency',
+            'confidence': 0
+        }
