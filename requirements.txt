@@ -1,0 +1,36 @@
+# Core Streamlit
+streamlit>=1.28.0
+
+# Image handling
+Pillow>=10.0.0
+
+# Web requests
+requests>=2.31.0
+
+# Web scraping (NO API KEYS NEEDED)
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Basic computation
+numpy>=1.24.0
+
+# Optional: NLP (lightweight)
+nltk>=3.8.1
+
+# NEW: For temporal verification
+python-dateutil>=2.8.2
+
+# NEW: For sentence transformers (semantic similarity)
+# Uncomment if you want semantic similarity features
+# sentence-transformers>=2.2.0
+
+# Scientific computing (for attention fusion)
+scipy>=1.10.0
+
+# Data manipulation
+pandas>=2.0.0
+
+# Optional: spaCy for advanced NLP
+# Uncomment to enable advanced entity extraction
+# spacy>=3.5.0
+# To download model: python -m spacy download en_core_web_sm
