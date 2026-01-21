@@ -1,7 +1,12 @@
 """
-Streamlit Application
+Streamlit Application - FIXED VERSION
 Enhanced Dual-Input Incident Verification System
-Version: 2.0
+Version: 2.1 FIXED
+
+CHANGES:
+- Uses image_retriever_COMPLETE.py
+- Uses temporal_verifier_FIXED.py
+- All imports corrected
 """
 
 import streamlit as st
@@ -9,9 +14,9 @@ from PIL import Image
 import sys
 import os
 
-# Import custom modules
+# Import custom modules - FIXED IMPORTS
 from text_processor import TextProcessor
-from image_retriever import ImageRetrieverFixed
+from image_retriever_COMPLETE import ImageRetrieverComplete as ImageRetriever  # ✅ FIXED!
 from dual_verifier import DualVerifier
 from explanation_generator import ExplanationGenerator
 
@@ -60,6 +65,30 @@ st.markdown("""
     .uncertain {
         background-color: #e7f3ff;
         border-color: #0066cc;
+    }
+    .credibility-badge {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        border-radius: 5px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        margin-left: 0.5rem;
+    }
+    .tier1 {
+        background-color: #28a745;
+        color: white;
+    }
+    .tier2 {
+        background-color: #ffc107;
+        color: black;
+    }
+    .tier3 {
+        background-color: #17a2b8;
+        color: white;
+    }
+    .regional {
+        background-color: #6f42c1;
+        color: white;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -182,12 +211,17 @@ def main():
                     text_info = st.session_state.text_processor.process_text(text_input)
                 st.success("✓ Text processed")
                 
+                # Initialize retriever - FIXED
+                retriever = ImageRetriever()  # ✅ Now uses ImageRetrieverComplete
+                
                 # Retrieve images based on text
                 with st.spinner("Retrieving images based on TEXT..."):
-                    retriever = ImageRetrieverFixed()
-                    text_based_images = retriever.retrieve_images(
-                        text_info['search_query'], 
-                        max_images
+                    text_based_images = retriever.retrieve_images_for_text(  # ✅ FIXED method name
+                        query=text_info['search_query'],
+                        max_images=max_images,
+                        location=text_info.get('location'),
+                        event_type=text_info.get('event_type'),
+                        keywords=text_info.get('keywords')
                     )
                 
                 if text_based_images:
@@ -195,15 +229,30 @@ def main():
                 else:
                     st.warning("⚠️ Could not retrieve images for text")
                 
-                # Retrieve images based on image (reverse search)
-                with st.spinner("Performing reverse image search..."):
-                    caption = f"{text_info['event_type']} incident"
-                    image_based_images = retriever.retrieve_images(caption, max_images)
+                # Reverse image search - NEW FEATURE!
+                with st.spinner("Performing reverse image search (finding original source)..."):
+                    reverse_result = retriever.reverse_image_search(
+                        image=user_image,
+                        max_results=20
+                    )
                 
-                if image_based_images:
-                    st.success(f"✓ Retrieved {len(image_based_images)} images for reverse search")
+                if reverse_result.get('all_occurrences'):
+                    st.success(f"✓ Found {len(reverse_result['all_occurrences'])} occurrences of uploaded image")
+                    
+                    # Show original source
+                    if reverse_result.get('original_source'):
+                        orig = reverse_result['original_source']
+                        st.info(f"🎯 Original source: **{orig.get('domain', 'Unknown')}**")
                 else:
-                    st.warning("⚠️ Could not retrieve images for reverse search")
+                    st.warning("⚠️ No reverse search results (image may be new/original)")
+                
+                # Retrieve similar images (backward compatibility)
+                with st.spinner("Searching for similar images..."):
+                    caption = f"{text_info['event_type']} incident"
+                    image_based_images = retriever.retrieve_images_for_text(
+                        query=caption,
+                        max_images=max_images // 2
+                    )
                 
                 # Perform dual verification
                 with st.spinner("Cross-verifying text and image..."):
@@ -221,7 +270,8 @@ def main():
                     result,
                     text_based_images,
                     image_based_images,
-                    user_image
+                    user_image,
+                    reverse_result
                 )
             
             # CASE 2: Only Text provided
@@ -233,12 +283,17 @@ def main():
                     text_info = st.session_state.text_processor.process_text(text_input)
                 st.success("✓ Text processed")
                 
+                # Initialize retriever
+                retriever = ImageRetriever()  # ✅ FIXED
+                
                 # Retrieve images
                 with st.spinner("Retrieving images from web..."):
-                    retriever = ImageRetriever()
-                    retrieved_images = retriever.retrieve_images(
-                        text_info['search_query'],
-                        max_images
+                    retrieved_images = retriever.retrieve_images_for_text(  # ✅ FIXED
+                        query=text_info['search_query'],
+                        max_images=max_images,
+                        location=text_info.get('location'),
+                        event_type=text_info.get('event_type'),
+                        keywords=text_info.get('keywords')
                     )
                 
                 if retrieved_images:
@@ -260,18 +315,30 @@ def main():
             elif not has_text and has_image:
                 st.info("🔄 Mode: IMAGE Only Verification")
                 
-                # Generate caption
-                with st.spinner("Analyzing image..."):
-                    caption = "incident scene"
-                st.success(f"✓ Image analyzed")
+                # Initialize retriever
+                retriever = ImageRetriever()  # ✅ FIXED
                 
-                # Retrieve similar images
-                with st.spinner("Searching for similar images..."):
-                    retriever = ImageRetriever()
-                    retrieved_images = retriever.retrieve_images(caption, max_images)
+                # Reverse image search - MAIN FEATURE FOR IMAGE-ONLY!
+                with st.spinner("Performing reverse image search..."):
+                    reverse_result = retriever.reverse_image_search(
+                        image=user_image,
+                        max_results=20
+                    )
                 
-                if retrieved_images:
-                    st.success(f"✓ Found {len(retrieved_images)} similar images")
+                if reverse_result.get('all_occurrences'):
+                    st.success(f"✓ Found {len(reverse_result['all_occurrences'])} occurrences")
+                    
+                    # Extract images from reverse search
+                    retrieved_images = []
+                    for occ in reverse_result['all_occurrences'][:10]:
+                        # Create image dict format
+                        retrieved_images.append({
+                            'image': user_image,  # Placeholder (could download from URL)
+                            'source': occ.get('domain', 'Unknown'),
+                            'name': occ.get('title', 'Unknown'),
+                            'url': occ.get('url', ''),
+                            'credibility': occ.get('credibility', 'UNKNOWN')
+                        })
                     
                     # Verify
                     with st.spinner("Verifying image..."):
@@ -281,16 +348,16 @@ def main():
                         )
                     
                     st.success("✓ Verification complete")
-                    display_image_only_results(result, retrieved_images, user_image)
+                    display_image_only_results(result, retrieved_images, user_image, reverse_result)
                 else:
-                    st.error("❌ No similar images found. Cannot verify.")
+                    st.warning("⚠️ No similar images found. Cannot verify.")
         
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
             st.exception(e)
 
 
-def display_dual_verification_results(result, text_images, image_images, user_image):
+def display_dual_verification_results(result, text_images, image_images, user_image, reverse_result):
     """Display results for Text + Image verification with retrieved images"""
     st.markdown("---")
     st.header("📋 Verification Results")
@@ -316,7 +383,33 @@ def display_dual_verification_results(result, text_images, image_images, user_im
         unsafe_allow_html=True
     )
     
+    # NEW: Show reverse image search results
+    if reverse_result and reverse_result.get('all_occurrences'):
+        st.markdown("---")
+        st.header("🔍 Reverse Image Search Results")
+        
+        if reverse_result.get('original_source'):
+            orig = reverse_result['original_source']
+            st.success(
+                f"🎯 **Original Source Found:** {orig.get('domain', 'Unknown')}\n\n"
+                f"**Title:** {orig.get('title', 'N/A')}\n\n"
+                f"**Credibility:** {orig.get('credibility', 'UNKNOWN')}"
+            )
+        
+        if reverse_result.get('reuse_detected'):
+            st.warning(
+                f"⚠️ **Image Reuse Detected:** This image appears on "
+                f"{len(reverse_result['all_occurrences'])} different websites"
+            )
+        
+        # Show all occurrences
+        with st.expander("📍 All websites where this image was found", expanded=False):
+            for i, occ in enumerate(reverse_result['all_occurrences'][:10]):
+                st.write(f"{i+1}. **{occ.get('domain', 'Unknown')}** - {occ.get('credibility', 'UNKNOWN')}")
+                st.caption(occ.get('snippet', occ.get('title', 'No description'))[:100])
+    
     # Show detailed analysis
+    st.markdown("---")
     st.subheader("📊 Detailed Analysis")
     
     col1, col2 = st.columns(2)
@@ -331,7 +424,7 @@ def display_dual_verification_results(result, text_images, image_images, user_im
         st.write(f"**Status:** {result['image_verification']['authenticity']}")
         st.write(f"**Confidence:** {result['image_verification']['confidence']}%")
     
-    # IMPORTANT: Show original images from internet for REAL incidents
+    # Show original images from internet
     st.markdown("---")
     
     text_is_real = result['text_verification']['is_real']
@@ -350,21 +443,47 @@ def display_dual_verification_results(result, text_images, image_images, user_im
             for i, img_data in enumerate(text_images[:8]):
                 with cols[i % 4]:
                     st.image(img_data['image'], use_column_width=True)
-                    st.caption(f"**{img_data['source'][:30]}**")
-                    st.caption(f"{img_data['name'][:40]}...")
+                    
+                    # Show credibility badge
+                    credibility = img_data.get('credibility', 'UNKNOWN')
+                    badge_class = {
+                        'TIER1_GLOBAL': 'tier1',
+                        'TIER2_INDIA': 'tier2',
+                        'TIER3_REGIONAL': 'tier3',
+                        'SOCIAL_MEDIA': 'regional'
+                    }.get(credibility, 'tier3')
+                    
+                    st.markdown(
+                        f"**{img_data.get('source', 'Unknown')[:30]}** "
+                        f'<span class="credibility-badge {badge_class}">{credibility}</span>',
+                        unsafe_allow_html=True
+                    )
+                    st.caption(f"{img_data.get('name', '')[:40]}...")
         
         # Show image-based images if image is real
         if image_is_real and image_images:
             st.markdown("---")
-            st.subheader("🖼️ Similar Images Found Online (Reverse Search)")
+            st.subheader("🖼️ Similar Images Found Online")
             st.caption("These similar images were found matching your uploaded image")
             
             cols = st.columns(4)
             for i, img_data in enumerate(image_images[:8]):
                 with cols[i % 4]:
                     st.image(img_data['image'], use_column_width=True)
-                    st.caption(f"**{img_data['source'][:30]}**")
-                    st.caption(f"{img_data['name'][:40]}...")
+                    
+                    # Show credibility
+                    credibility = img_data.get('credibility', 'UNKNOWN')
+                    badge_class = {
+                        'TIER1_GLOBAL': 'tier1',
+                        'TIER2_INDIA': 'tier2',
+                        'TIER3_REGIONAL': 'tier3'
+                    }.get(credibility, 'tier3')
+                    
+                    st.markdown(
+                        f"**{img_data.get('source', 'Unknown')[:30]}** "
+                        f'<span class="credibility-badge {badge_class}">{credibility}</span>',
+                        unsafe_allow_html=True
+                    )
         
         st.success("✅ Above images from news sources verify the incident authenticity")
     else:
@@ -393,11 +512,13 @@ def display_text_only_results(result, retrieved_images):
         for i, img_data in enumerate(retrieved_images[:8]):
             with cols[i % 4]:
                 st.image(img_data['image'], use_column_width=True)
-                st.caption(f"**{img_data['source'][:30]}**")
-                st.caption(f"{img_data['name'][:40]}...")
+                
+                # Show credibility
+                credibility = img_data.get('credibility', 'UNKNOWN')
+                st.caption(f"**{img_data.get('source', 'Unknown')[:30]}** ({credibility})")
 
 
-def display_image_only_results(result, retrieved_images, user_image):
+def display_image_only_results(result, retrieved_images, user_image, reverse_result):
     """Display results for image-only verification"""
     st.markdown("---")
     st.header("📋 Verification Results (Image Only)")
@@ -413,14 +534,23 @@ def display_image_only_results(result, retrieved_images, user_image):
         unsafe_allow_html=True
     )
     
+    # Show reverse search details
+    if reverse_result and reverse_result.get('original_source'):
+        st.subheader("🎯 Original Source")
+        orig = reverse_result['original_source']
+        st.info(
+            f"**Domain:** {orig.get('domain', 'Unknown')}\n\n"
+            f"**Credibility:** {orig.get('credibility', 'UNKNOWN')}\n\n"
+            f"**Context:** {orig.get('snippet', 'N/A')[:200]}"
+        )
+    
     if result['is_real'] and retrieved_images:
         st.subheader("🔍 Similar Images Found Online")
         cols = st.columns(4)
         for i, img_data in enumerate(retrieved_images[:8]):
             with cols[i % 4]:
-                st.image(img_data['image'], use_column_width=True)
-                st.caption(f"**{img_data['source'][:30]}**")
-                st.caption(f"{img_data['name'][:40]}...")
+                st.write(f"**{img_data.get('source', 'Unknown')[:30]}**")
+                st.caption(f"Credibility: {img_data.get('credibility', 'UNKNOWN')}")
 
 
 if __name__ == "__main__":
