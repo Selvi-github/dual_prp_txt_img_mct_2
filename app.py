@@ -15,7 +15,7 @@ import sys
 import os
 
 # Import custom modules - FIXED IMPORTS
-from text_processor import TextProcessor
+from text_processor import TextProcessorPerfect
 from image_retriever_COMPLETE import ImageRetrieverComplete as ImageRetriever  # ✅ FIXED!
 from dual_verifier import DualVerifier
 from explanation_generator import ExplanationGenerator
