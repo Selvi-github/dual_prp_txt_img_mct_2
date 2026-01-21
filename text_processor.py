@@ -375,3 +375,9 @@ class TextProcessorPerfect:
             'verification_keywords': words[:5],
             'location': 'Unknown'
         }
+
+
+# Alias for backward compatibility
+class TextProcessor(TextProcessorPerfect):
+    """Alias - so app.py can use 'TextProcessor' name"""
+    pass
